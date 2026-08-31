@@ -1,14 +1,16 @@
 ﻿# 打包脚本：构建 Windows Release 版本并压缩到 dist/ 目录。
+# 应用名、版本号自动从 pubspec.yaml 读取，dist/ 内只保留最新一个压缩包。
 # 用法：.\package.ps1
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-# 从 pubspec.yaml 读取版本号（忽略 +build 号）
-$versionLine = Select-String -Path pubspec.yaml -Pattern '^version:\s*(\S+)' | Select-Object -First 1
-if (-not $versionLine) { throw '无法从 pubspec.yaml 读取版本号' }
-$appVersion = $versionLine.Matches[0].Groups[1].Value -split '\+' | Select-Object -First 1
+$pubspec = Get-Content (Join-Path $PSScriptRoot 'pubspec.yaml') -Raw
+if ($pubspec -notmatch '(?m)^name:\s*(\S+)') { throw '无法从 pubspec.yaml 读取应用名' }
+$appName = $Matches[1]
+if ($pubspec -notmatch '(?m)^version:\s*(\S+)') { throw '无法从 pubspec.yaml 读取版本号' }
+$appVersion = $Matches[1] -split '\+' | Select-Object -First 1
 
-$zipName = "orbby_json_viewer_v${appVersion}_windows_x64.zip"
+$zipName = "${appName}_v${appVersion}_windows_x64.zip"
 $distDir = Join-Path $PSScriptRoot 'dist'
 $zipPath = Join-Path $distDir $zipName
 
@@ -17,13 +19,13 @@ flutter build windows --release
 if ($LASTEXITCODE -ne 0) { throw '构建失败' }
 
 $releaseDir = Join-Path $PSScriptRoot 'build\windows\x64\runner\Release'
-if (-not (Test-Path (Join-Path $releaseDir 'orbby_json_viewer.exe'))) {
+if (-not (Get-ChildItem (Join-Path $releaseDir '*.exe') -ErrorAction SilentlyContinue)) {
     throw "未找到构建产物: $releaseDir"
 }
 
 # 先复制到暂存目录，让压缩包内带一层版本号文件夹，解压后文件不会散落一地
-$stageDir = Join-Path $env:TEMP "orbby_json_viewer_package_v${appVersion}"
-$appDirName = "orbby_json_viewer_v${appVersion}"
+$stageDir = Join-Path $env:TEMP "${appName}_package_v${appVersion}"
+$appDirName = "${appName}_v${appVersion}"
 if (Test-Path $stageDir) { Remove-Item -Recurse -Force $stageDir }
 New-Item -ItemType Directory -Force $stageDir | Out-Null
 Copy-Item -Recurse -Force -Path $releaseDir -Destination (Join-Path $stageDir $appDirName)
@@ -34,15 +36,16 @@ Compress-Archive -Path (Join-Path $stageDir $appDirName) -DestinationPath $zipPa
 Remove-Item -Recurse -Force $stageDir
 
 # 只保留最新版本压缩包，删掉 dist/ 里的旧版本
-Get-ChildItem $distDir -Filter 'orbby_json_viewer_v*_windows_x64.zip' |
+Get-ChildItem $distDir -Filter "${appName}_v*_windows_x64.zip" |
     Where-Object { $_.Name -ne $zipName } |
     Remove-Item -Force
 
-# 同步 README 中的下载链接
+# 同步 README 中的下载链接（README 里没有 dist 链接时自动跳过）
 $readmePath = Join-Path $PSScriptRoot 'README.md'
 if (Test-Path $readmePath) {
     $readme = [IO.File]::ReadAllText($readmePath)
-    $updated = [regex]::Replace($readme, 'dist/orbby_json_viewer_v[\d.]+_windows_x64\.zip', "dist/$zipName")
+    $pattern = "dist/${appName}_v[\d.]+_windows_x64\.zip"
+    $updated = [regex]::Replace($readme, $pattern, "dist/$zipName")
     if ($updated -ne $readme) {
         [IO.File]::WriteAllText($readmePath, $updated, (New-Object System.Text.UTF8Encoding $false))
         Write-Host "已更新 README 下载链接: dist/$zipName"
