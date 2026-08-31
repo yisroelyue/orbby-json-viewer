@@ -2,6 +2,10 @@
 
 基于 Flutter 开发的 Windows 桌面 JSON 工具：左侧编辑 / 粘贴原始报文，右侧实时渲染树形结构。
 
+<p align="center">
+  <img src="assets/img.png" width="800" alt="应用截图">
+</p>
+
 ## 下载
 
 最新版本：[orbby_json_viewer_v1.0.0_windows_x64.zip](dist/orbby_json_viewer_v1.0.0_windows_x64.zip)
