@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/json_node.dart';
 
@@ -8,10 +11,14 @@ class JsonNodeTile extends StatelessWidget {
     super.key,
     required this.node,
     required this.onToggle,
+    this.highlightColor,
   });
 
   final JsonNode node;
   final VoidCallback onToggle;
+
+  /// 搜索命中时的行背景色；null 表示无高亮。
+  final Color? highlightColor;
 
   // JSON 类型配色
   static const _stringColor = Color(0xFF2E7D32); // 绿
@@ -65,6 +72,8 @@ class JsonNodeTile extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: isContainer ? onToggle : null,
+        onSecondaryTapUp: (details) =>
+            _showContextMenu(context, details.globalPosition),
         child: Container(
           padding: EdgeInsets.only(
             left: node.depth * 20.0,
@@ -72,7 +81,7 @@ class JsonNodeTile extends StatelessWidget {
             top: 2,
             bottom: 2,
           ),
-          color: Colors.transparent,
+          color: highlightColor ?? Colors.transparent,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -125,6 +134,7 @@ class JsonNodeTile extends StatelessWidget {
       case JsonNodeType.string_:
         return Text(
           '"${node.displayValue}"',
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: _stringColor, fontSize: 13, fontFamily: 'Consolas'),
         );
@@ -163,5 +173,62 @@ class JsonNodeTile extends StatelessWidget {
           ),
         );
     }
+  }
+
+  // ── 右键复制菜单 ────────────────────────────────────────────
+
+  Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        overlay.size.width - position.dx,
+        overlay.size.height - position.dy,
+      ),
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: [
+        if (node.key != null) _menuItem('key', '复制键名'),
+        _menuItem('value', node.isContainer ? '复制 JSON' : '复制值'),
+        _menuItem('path', '复制路径'),
+      ],
+    );
+    if (choice == null || !context.mounted) return;
+    final text = switch (choice) {
+      'key' => node.key!,
+      'path' => node.path,
+      _ => node.isContainer
+          ? const JsonEncoder.withIndent('  ').convert(node.value)
+          : (node.value?.toString() ?? 'null'),
+    };
+    await Clipboard.setData(ClipboardData(text: text));
+    if (context.mounted) _showCopiedSnack(context);
+  }
+
+  PopupMenuItem<String> _menuItem(String value, String label) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 34,
+      child: Text(
+        label,
+        style: const TextStyle(fontSize: 13, color: Color(0xFF1F1F1F)),
+      ),
+    );
+  }
+
+  void _showCopiedSnack(BuildContext context) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+        content: const Text('已复制到剪贴板',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: const Color(0xFF333333),
+        duration: const Duration(milliseconds: 1500),
+      ));
   }
 }

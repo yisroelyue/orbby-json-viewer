@@ -26,11 +26,38 @@ class _JsonViewerScreenState extends State<JsonViewerScreen> {
   Timer? _debounceTimer;
   double _leftRatio = 0.45;
 
+  // 右侧树搜索状态
+  final _treeSearchController = TextEditingController();
+  final _treeSearchFocus = FocusNode();
+  bool _treeSearchVisible = false;
+  String? _treeSearchQuery;
+
+  @override
+  void initState() {
+    super.initState();
+    // 全局捕获 Ctrl+F / Cmd+F：不依赖焦点位置，左侧编辑器输入时也能唤起搜索。
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+  }
+
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _debounceTimer?.cancel();
     _textController.dispose();
+    _treeSearchController.dispose();
+    _treeSearchFocus.dispose();
     super.dispose();
+  }
+
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.keyF &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed)) {
+      _openTreeSearch();
+      return true;
+    }
+    return false;
   }
 
   // ── JSON 解析 ────────────────────────────────────────────────
@@ -94,6 +121,39 @@ class _JsonViewerScreenState extends State<JsonViewerScreen> {
 
   void _copyToClipboard() {
     Clipboard.setData(ClipboardData(text: _textController.text));
+  }
+
+  // ── 树搜索 ──────────────────────────────────────────────────
+
+  void _openTreeSearch() {
+    if (_rootNode == null) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(
+          content: const Text('暂无可搜索内容，请先输入有效的 JSON',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          backgroundColor: const Color(0xFF333333),
+          duration: const Duration(seconds: 2),
+        ));
+      return;
+    }
+    setState(() {
+      _treeSearchVisible = true;
+      _treeSearchQuery = _treeSearchController.text;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _treeSearchFocus.requestFocus();
+    });
+  }
+
+  void _closeTreeSearch() {
+    setState(() {
+      _treeSearchVisible = false;
+      _treeSearchQuery = null;
+    });
   }
 
   Future<void> _openFile() async {
@@ -267,6 +327,13 @@ class _JsonViewerScreenState extends State<JsonViewerScreen> {
       return JsonTreeView(
         key: ValueKey(_rootNode),
         rootNode: _rootNode!,
+        searchVisible: _treeSearchVisible,
+        searchQuery: _treeSearchQuery,
+        searchController: _treeSearchController,
+        searchFocusNode: _treeSearchFocus,
+        onQueryChanged: (query) => setState(() => _treeSearchQuery = query),
+        onSearchClosed: _closeTreeSearch,
+        onSearchOpen: _openTreeSearch,
       );
     }
     return _buildEmptyState();
